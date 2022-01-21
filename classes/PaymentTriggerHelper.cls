@@ -1,93 +1,109 @@
 public class PaymentTriggerHelper {
-    // Calculate total amount and recent date on contct object.
-    public static void onAfterInsertAndUpdate (List<Payment__c> newPayment){
-       // create a set to store contact ids.
-        set<id> contids= new set<id>();
-        for(Payment__c Pmt:newPayment){
-            //Store contact Ids into the contids.
-            contids.add(Pmt.Contact__c);
-        }     
-        List<Contact> cont = [Select id, RecentDateOfPayment__c,TotalAmountOfPay__c,
-                              (Select id,Amount__c,Payment_Date__c from Payments__r ORDER BY Payment_Date__c ASC) from Contact where id IN: contids];
-        if(cont!=null){
-            for(Contact contValue:cont){
-                Decimal sum=0;
-                Date PayDate;
-                for(Payment__c pay:contValue.Payments__r ){
-                    sum = sum+pay.Amount__c;
-                    PayDate = pay.Payment_Date__c;
-                }   
-                contValue.TotalAmountOfPay__c = sum;
-                contValue.RecentDateOfPayment__c = PayDate;
+    //Insert--Records
+    public void afterInsert(List<Payment__c> newRecordList){
+        Set<id> contactIds = new Set<id>();
+        Set<id> projectIds = new Set<id>();
+        for(Payment__c paymentRecords : newRecordList){
+            if(paymentRecords.Contact__c != null){
+                contactIds.add(paymentRecords.Contact__c);
+            }
+            if(paymentRecords.Project__c != null){
+                projectIds.add(paymentRecords.Project__c);
+            }
+        }
+        updateContactRecords(contactIds);
+        updateProjectRecords(projectIds);
+    }
+    //Update Records
+    public void afterUpdate(List<Payment__c> oldRecordList, Map<Id,Payment__c> oldRecordMap, List<Payment__c> newRecordList, Map<Id,Payment__c> newRecordMap){
+        Set<id> contactIds = new Set<id>();
+        Set<id> projectIds = new Set<id>();
+        for(Payment__c paymentRecords : newRecordList){
+            Payment__c oldPaymentsRecords = oldRecordMap.get(paymentRecords.id);
+            if(paymentRecords.Contact__c != oldPaymentsRecords.Contact__c || paymentRecords.Amount__c != oldPaymentsRecords.Amount__c){
+                IF(paymentRecords.Contact__c != null){
+                    contactIds.add(paymentRecords.Contact__c);
+                }
+                IF(oldPaymentsRecords.Contact__c != null){
+                    contactIds.add(oldPaymentsRecords.Contact__c);
+                }
+            }
+            if(paymentRecords.Project__c != oldPaymentsRecords.Project__c || paymentRecords.Amount__c != oldPaymentsRecords.Amount__c){
+                IF(paymentRecords.Project__c != null){
+                    projectIds.add(paymentRecords.Project__c);
+                }
+                IF(oldPaymentsRecords.Project__c != null){
+                    projectIds.add(oldPaymentsRecords.Project__c);
+                }
+            }
+        }
+        updateContactRecords(contactIds);
+        updateProjectRecords(projectIds);
+    } 
+    //Delete Records
+    public void afterDelete(List<Payment__c> oldRecordList, Map<Id,Payment__c> oldRecordMap){
+        Set<id> contactIds = new Set<id>();
+        Set<id> projectIds = new Set<id>();
+        for(Payment__c paymentRecords : oldRecordList){
+            if(paymentRecords.Contact__c != null){
+                contactIds.add(paymentRecords.Contact__c);
+            }
+            if(paymentRecords.Project__c != null){
+                projectIds.add(paymentRecords.Project__c);
+            }
+        }
+        updateContactRecords(contactIds);
+        updateProjectRecords(projectIds);
+    }
+    //For update Contact's Fields   Total amount of Payments most Recent Payment
+    // -----------------------------------------
+    public void updateContactRecords(set<id> contactIds ){
+        List <Contact> contactListToUpdate = new List <Contact> ();
+        List <AggregateResult> agrList = new List <AggregateResult>();
+        agrList = [Select Sum(Amount__c)sumAmount,MAX(Payment_Date__c)mostRecentPayment,
+                   Contact__c From Payment__c Where Contact__c IN:contactIds
+                   Group By Contact__c];
+        if(agrList.size() > 0){
+            for(AggregateResult agr :agrList){
+                Decimal sum = (Decimal)agr.get('sumAmount');
+                Date mostRecentPayment = (Date)agr.get('mostRecentPayment');
+                System.debug('Result of aggrgate query:' + sum);
+                Id accId  = (Id)agr.get('Contact__c');
+                Contact conobj = new Contact();
+                conobj.id =accId;
+                conobj.TotalAmountOfPay__c = sum;
+                conobj.RecentDateOfPayment__c	= mostRecentPayment;
+                contactListToUpdate.add(conobj);
                 
-            } 
+            }
         }
-        if(!cont.isempty()){
-            update cont;
-        }
+        if(contactListToUpdate.size()>0){
+            Update contactListToUpdate;    
+        } 
     }
-    public static void onAfterDelete (List<Payment__c> oldPayment){
-        
-        set<id> contids= new set<id>();
-        for(Payment__c Pmt:oldPayment){
-            contids.add(Pmt.Contact__c);
-        }     
-        List<Contact> cont = [Select id, RecentDateOfPayment__c,TotalAmountOfPay__c,
-                              (Select id,Amount__c,Payment_Date__c from Payments__r ORDER BY Payment_Date__c ASC) from Contact where id IN: contids];
-        if(cont!=null){
-            for(Contact contValue:cont){
-                Decimal sum=0;
-                for(Payment__c pay:contValue.Payments__r ){
-                    sum = sum+pay.Amount__c;
-                }   
-                contValue.TotalAmountOfPay__c = sum;
-            } 
+    //For update project's Field   Total amount of Payments
+    // -----------------------------------------
+    public void updateProjectRecords(set<id> projectIds ){
+        List <Project__c> projectListToUpdate = new List <Project__c> ();
+        List <AggregateResult> agrList = new List <AggregateResult>();
+        agrList = [Select Sum(Amount__c)sumAmount,
+                   Project__c From Payment__c Where Project__c IN:projectIds
+                   Group By Project__c];
+        if(agrList.size() > 0){
+            for(AggregateResult agr :agrList){
+                Decimal sum = (Decimal)agr.get('sumAmount');
+                System.debug('Result of aggrgate query:' + sum);
+                Id accId  = (Id)agr.get('Project__c');
+                Project__c proobj = new Project__c();
+                proobj.id =accId;
+                proobj.Total_Amount_Of_Payment__c = sum;
+                
+                projectListToUpdate.add(proobj);
+                
+            }
         }
-        if(!cont.isempty()){
-            update cont;
-        }
-    }
-    //Calculate the total amount on Project object.
-    public static void onAfterInsertAndUpdateProj (List<Payment__c> newPayment){
-        set<id> projids= new set<id>();
-        for(Payment__c Pmt:newPayment){
-            projids.add(Pmt.Project__c);
-        }     
-        List<Project__c> proj = [Select id, Total_Amount_Of_Payment__c,(Select id,Amount__c from Payments__r ORDER BY Payment_Date__c ASC) 
-                                 from Project__c where id IN: projids];
-        if(proj!=null){
-            for(Project__c projValue:proj){
-                Decimal sum=0;
-                for(Payment__c pay:projValue.Payments__r ){
-                    sum = sum+pay.Amount__c;
-                    
-                }   
-                projValue.Total_Amount_Of_Payment__c = sum;  
-            } 
-        }
-        if(!proj.isempty()){
-            update proj;
-        }
-    }
-    public static void onAfterDeleteProj(List<Payment__c> oldPayment){
-        set<id> projids= new set<id>();
-        for(Payment__c Pmt:oldPayment){
-            projids.add(Pmt.Project__c);
-        }     
-        List<Project__c> proj = [Select id, Total_Amount_Of_Payment__c,(Select id,Amount__c from Payments__r ORDER BY Payment_Date__c ASC) 
-                                 from Project__c where id IN: projids];
-        if(proj!=null){
-            for(Project__c projValue:proj){
-                Decimal sum=0;
-                for(Payment__c pay:projValue.Payments__r ){
-                    sum = sum+pay.Amount__c;
-                    
-                }   
-                projValue.Total_Amount_Of_Payment__c = sum;  
-            } 
-        }
-        if(!proj.isempty()){
-            update proj;
-        }
+        if(projectListToUpdate.size()>0){
+            Update projectListToUpdate;    
+        } 
     }
 }
